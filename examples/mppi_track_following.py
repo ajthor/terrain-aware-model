@@ -7,8 +7,9 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import LineCollection
-from matplotlib.patches import Polygon
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from tqdm import tqdm
 
 from terrain_aware_model import vehicle_dynamics
@@ -28,8 +29,8 @@ P = {
     "tau_delta": 0.06,
     "tau_a": 0.12,
     "delta_max": 0.55,
-    "a_min": -8.0,
-    "a_max": 8.0,
+    "a_min": -12.0,
+    "a_max": 12.0,
 }
 
 
@@ -40,8 +41,10 @@ def build_track(num_points=400):
     arc_points = num_points // 4
     straight_points = num_points // 2
 
-    theta_right = np.linspace(-0.5 * math.pi, 0.5 * math.pi, arc_points, endpoint=False)
-    theta_left = np.linspace(0.5 * math.pi, 1.5 * math.pi, arc_points, endpoint=False)
+    theta_right = np.linspace(-0.5 * math.pi, 0.5 *
+                              math.pi, arc_points, endpoint=False)
+    theta_left = np.linspace(0.5 * math.pi, 1.5 *
+                             math.pi, arc_points, endpoint=False)
 
     right_arc = np.column_stack((
         half_straight + radius * np.cos(theta_right),
@@ -53,15 +56,27 @@ def build_track(num_points=400):
     ))
 
     top = np.column_stack((
-        np.linspace(half_straight, -half_straight, straight_points // 2, endpoint=False),
+        np.linspace(half_straight, -half_straight,
+                    straight_points // 2, endpoint=False),
         np.full(straight_points // 2, radius),
     ))
     bottom = np.column_stack((
-        np.linspace(-half_straight, half_straight, straight_points // 2, endpoint=False),
+        np.linspace(-half_straight, half_straight,
+                    straight_points // 2, endpoint=False),
         np.full(straight_points // 2, -radius),
     ))
 
     return np.vstack((right_arc, top, left_arc, bottom))
+
+
+def terrain_height(x, y):
+    return 0.6 * np.sin(0.12 * x) + 0.4 * np.cos(0.1 * y) + 0.2 * np.sin(0.06 * (x + y))
+
+
+def terrain_gradient(x, y):
+    dhx = 0.6 * 0.12 * np.cos(0.12 * x) + 0.2 * 0.06 * np.cos(0.06 * (x + y))
+    dhy = -0.4 * 0.1 * np.sin(0.1 * y) + 0.2 * 0.06 * np.cos(0.06 * (x + y))
+    return dhx, dhy
 
 
 def cross_track_error_sq(points, position):
@@ -118,7 +133,7 @@ def rollout_cost_batch(x0, controls, dt, p, track):
 
         costs += 4.0 * cross_track_error_sq_batch(track, x[:, :2])
 
-        speed_error = x[:, 3] - 8.0
+        speed_error = x[:, 3] - 15.0
         costs += 0.5 * speed_error * speed_error
 
         costs += 0.2 * accel * accel + 0.6 * steer * steer
@@ -154,33 +169,86 @@ num_samples = 100
 lambda_ = 3.0
 noise_std = (2.0, 0.25)
 viz_samples = 20
-max_trail = 100
+max_trail = 200
+force_scale = 1.0
+show_body_frame_forces = True
 
 plt.ion()
-fig, ax = plt.subplots(figsize=(8, 6))
-ax.plot(track[:, 0], track[:, 1], "k--", label="Track")
-trail = LineCollection([], linewidths=2.0, label="Vehicle")
+fig = plt.figure(figsize=(12, 7))
+gs = fig.add_gridspec(4, 2, width_ratios=[3.2, 1.0], wspace=0.2, hspace=0.5)
+ax = fig.add_subplot(gs[:, 0], projection="3d")
+ax_fgx = fig.add_subplot(gs[0, 1])
+ax_fgy = fig.add_subplot(gs[1, 1])
+ax_vy = fig.add_subplot(gs[2, 1])
+ax_vx = fig.add_subplot(gs[3, 1])
+track_z = terrain_height(track[:, 0], track[:, 1])
+x_min, x_max = track[:, 0].min() - 12.0, track[:, 0].max() + 12.0
+y_min, y_max = track[:, 1].min() - 12.0, track[:, 1].max() + 12.0
+grid_x = np.linspace(x_min, x_max, 60)
+grid_y = np.linspace(y_min, y_max, 60)
+mesh_x, mesh_y = np.meshgrid(grid_x, grid_y)
+mesh_z = terrain_height(mesh_x, mesh_y)
+ax.plot_surface(mesh_x, mesh_y, mesh_z, cmap="Greys", alpha=0.35, linewidth=0)
+ax.plot(track[:, 0], track[:, 1], track_z, "k--", label="Track")
+trail = Line3DCollection([], linewidths=2.0, label="Vehicle")
 ax.add_collection(trail)
-airplane = Polygon(np.zeros((4, 2)), closed=True, facecolor="tab:red", edgecolor="tab:red", alpha=0.9)
-ax.add_patch(airplane)
+airplane = Poly3DCollection(
+    [np.zeros((4, 3))], facecolor="tab:red", edgecolor="tab:red", alpha=0.9)
+ax.add_collection3d(airplane)
 candidate_lines = [
-    ax.plot([], [], color="tab:blue", alpha=0.2, linewidth=1.0)[0]
+    ax.plot([], [], [], color="tab:blue", alpha=0.2, linewidth=1.0)[0]
     for _ in range(viz_samples)
 ]
-ax.axis("equal")
+ax.set_box_aspect((1.8, 1.0, 0.5))
+ax.set_xlim(x_min, x_max)
+ax.set_ylim(y_min, y_max)
 ax.set_xlabel("x [m]")
 ax.set_ylabel("y [m]")
+ax.set_zlabel("z [m]")
 ax.set_title("MPPI Path Following")
-ax.legend()
-plt.tight_layout()
+legend_handles = [
+    Line2D([0], [0], color="k", linestyle="--", label="Track"),
+    Line2D([0], [0], color="tab:red", linewidth=2.0, label="Vehicle trail"),
+    Line2D([0], [0], color="tab:blue", linewidth=1.0,
+           alpha=0.4, label="Candidates"),
+    Patch(facecolor="tab:red", edgecolor="tab:red", label="Vehicle"),
+    Line2D([0], [0], color="tab:orange", linewidth=2.0, label="Fgx"),
+    Line2D([0], [0], color="tab:green", linewidth=2.0, label="Fgy"),
+]
+ax.legend(handles=legend_handles, loc="upper left")
+ax.view_init(elev=45, azim=-135)
+ax.grid(False)
+ax.xaxis.pane.set_visible(False)
+ax.yaxis.pane.set_visible(False)
+ax.zaxis.pane.set_visible(False)
+fig.subplots_adjust(left=0.04, right=0.98, top=0.95, bottom=0.1)
+
+fx_line, = ax_fgx.plot([], [], color="tab:orange")
+fy_line, = ax_fgy.plot([], [], color="tab:green")
+vy_line, = ax_vy.plot([], [], color="tab:purple")
+vx_line, = ax_vx.plot([], [], color="tab:blue")
+ax_fgx.set_ylabel("Fgx [N]")
+ax_fgy.set_ylabel("Fgy [N]")
+ax_vy.set_ylabel("vy [m/s]")
+ax_vx.set_ylabel("vx [m/s]")
+ax_vx.set_xlabel("time [s]")
+for axis in (ax_fgx, ax_fgy, ax_vy, ax_vx):
+    axis.grid(alpha=0.3)
 
 xs = []
 ys = []
+times = []
+fx_hist = []
+fy_hist = []
+vy_hist = []
+vx_hist = []
 x = x0.copy()
 control_seq = np.zeros((horizon, 2), dtype=float)
 rng = np.random.default_rng(7)
 step_index = 0
 last_tick = time.perf_counter()
+force_quiver_x = None
+force_quiver_y = None
 
 with tqdm(total=None, desc="MPPI", unit="step") as pbar:
     while True:
@@ -200,20 +268,39 @@ with tqdm(total=None, desc="MPPI", unit="step") as pbar:
 
         xs.append(x[0])
         ys.append(x[1])
+        times.append(step_index * dt)
+        dhx, dhy = terrain_gradient(x[0], x[1])
+        cpsi = np.cos(x[2])
+        spsi = np.sin(x[2])
+        # Match vehicle_dynamics sign convention for along-heading and cross-slope gravity.
+        s_slope = dhx * cpsi + dhy * spsi
+        c_slope = -dhx * spsi + dhy * cpsi
+        fx_hist.append(-P["m"] * P["g"] * s_slope)
+        fy_hist.append(-P["m"] * P["g"] * c_slope)
+        vy_hist.append(x[4])
+        vx_hist.append(x[3])
         if len(xs) > max_trail:
             xs = xs[-max_trail:]
             ys = ys[-max_trail:]
+            times = times[-max_trail:]
+            fx_hist = fx_hist[-max_trail:]
+            fy_hist = fy_hist[-max_trail:]
+            vy_hist = vy_hist[-max_trail:]
+            vx_hist = vx_hist[-max_trail:]
         if len(xs) > 1:
-            points = np.column_stack((xs, ys))
+            z_vals = terrain_height(np.array(xs), np.array(ys))
+            points = np.column_stack((xs, ys, z_vals))
             segments = np.stack((points[:-1], points[1:]), axis=1)
             alphas = np.linspace(0.05, 1.0, len(segments))
             colors = np.zeros((len(segments), 4), dtype=float)
-            colors[:, 0] = 1.0
+            colors[:, 0] = 0.84
+            colors[:, 1] = 0.15
+            colors[:, 2] = 0.16
             colors[:, 3] = alphas
             trail.set_segments(segments)
             trail.set_color(colors)
-        heading_length = 1.2
-        wing_span = 0.9
+        heading_length = 2.4
+        wing_span = 1.8
         nose = np.array([heading_length, 0.0])
         left = np.array([-0.4 * heading_length, 0.5 * wing_span])
         tail = np.array([-0.2 * heading_length, 0.0])
@@ -222,18 +309,77 @@ with tqdm(total=None, desc="MPPI", unit="step") as pbar:
         cpsi = np.cos(x[2])
         spsi = np.sin(x[2])
         rot = np.array([[cpsi, -spsi], [spsi, cpsi]])
-        verts = (shape @ rot.T) + x[:2]
-        airplane.set_xy(verts)
+        verts2d = (shape @ rot.T) + x[:2]
+        z_plane = terrain_height(x[0], x[1]) + 0.05
+        verts = np.column_stack((verts2d, np.full(verts2d.shape[0], z_plane)))
+        airplane.set_verts([verts])
+
+        fx_body = fx_hist[-1]
+        fy_body = fy_hist[-1]
+        if show_body_frame_forces:
+            fx_vec = np.array([fx_body * cpsi, fx_body * spsi])
+            fy_vec = np.array([-fy_body * spsi, fy_body * cpsi])
+        else:
+            fx_vec = np.array([fx_body, 0.0])
+            fy_vec = np.array([0.0, fy_body])
+        base_z = terrain_height(x[0], x[1]) + 0.1
+        if force_quiver_x is not None:
+            force_quiver_x.remove()
+        if force_quiver_y is not None:
+            force_quiver_y.remove()
+        force_quiver_x = ax.quiver(
+            x[0],
+            x[1],
+            base_z,
+            fx_vec[0] * force_scale,
+            fx_vec[1] * force_scale,
+            0.0,
+            color="tab:orange",
+            linewidth=2.0,
+            arrow_length_ratio=0.1,
+        )
+        force_quiver_y = ax.quiver(
+            x[0],
+            x[1],
+            base_z,
+            fy_vec[0] * force_scale,
+            fy_vec[1] * force_scale,
+            0.0,
+            color="tab:green",
+            linewidth=2.0,
+            arrow_length_ratio=0.1,
+        )
 
         show_count = min(viz_samples, num_samples)
         cand_positions = rollout_states_batch(
             x, candidates[:show_count], dt, P)
+        cand_z = terrain_height(cand_positions[..., 0], cand_positions[..., 1])
         for idx, line in enumerate(candidate_lines):
             if idx < show_count:
                 line.set_data(
                     cand_positions[idx, :, 0], cand_positions[idx, :, 1])
+                line.set_3d_properties(cand_z[idx])
             else:
                 line.set_data([], [])
+                line.set_3d_properties([])
+
+        if len(times) > 1:
+            fx_line.set_data(times, fx_hist)
+            fy_line.set_data(times, fy_hist)
+            vy_line.set_data(times, vy_hist)
+            vx_line.set_data(times, vx_hist)
+            ax_fgx.set_xlim(times[0], times[-1])
+            ax_fgy.set_xlim(times[0], times[-1])
+            ax_vy.set_xlim(times[0], times[-1])
+            ax_vx.set_xlim(times[0], times[-1])
+            fx_min, fx_max = min(fx_hist), max(fx_hist)
+            fy_min, fy_max = min(fy_hist), max(fy_hist)
+            vy_min, vy_max = min(vy_hist), max(vy_hist)
+            vx_min, vx_max = min(vx_hist), max(vx_hist)
+            ax_fgx.set_ylim(fx_min - 1.0, fx_max + 1.0)
+            ax_fgy.set_ylim(fy_min - 1.0, fy_max + 1.0)
+            ax_vy.set_ylim(vy_min - 0.5, vy_max + 0.5)
+            ax_vx.set_ylim(vx_min - 0.5, vx_max + 0.5)
 
         plt.pause(0.001)
         now = time.perf_counter()
