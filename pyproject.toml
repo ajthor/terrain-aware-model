@@ -15,6 +15,8 @@ dependencies = [
     "scipy>=1.10",
     "matplotlib>=3.7",
     "tqdm>=4.66",
+    "optuna>=3.0",
+    "torch>=2.0",
 ]
 
 [tool.setuptools.packages.find]

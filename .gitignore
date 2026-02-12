@@ -14,3 +14,13 @@ venv/
 env/
 .DS_Store
 *.log
+
+# Generated results and plots
+results/
+
+# External / large data (uncomment if you want to track configs under these)
+external_data/
+function_encoder_beamng/
+
+# Stray files (e.g. from pip install typos)
+=*

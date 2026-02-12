@@ -1,0 +1,192 @@
+metadata:
+  vehicle_model: scintilla
+  terrain_map: my_terrain_asphalt
+  source_bag: external_data/driving_session_full
+  generated_on: '2026-02-08'
+  purpose: Initial analytical bicycle parameters for MPPI on BeamNG data
+model:
+  type: analytical_bicycle
+  state:
+  - X
+  - Y
+  - psi
+  - vx
+  - vy
+  - r
+  - delta
+  - a
+  control:
+  - delta_cmd
+  - a_cmd
+  sign_convention:
+    steering_to_delta_cmd: delta_cmd = -steering_input * delta_max
+    throttle_to_a_cmd: a_cmd = throttle_input * a_max
+nominal_params:
+  m: 1510.0
+  Iz: 3199.812001320896
+  lf: 1.2444102266719523
+  lr: 1.2736877960203743
+  L: 2.6547
+  h_com: 0.48
+  g: 9.81000042
+  Cf0: 73079.6696328347
+  Cr0: 87600.84172939441
+  k_a: 1350.0
+  tau_delta: 0.5
+  tau_a: 0.24
+  delta_max: 0.52
+  a_min: -12.4
+  a_max: 7.5
+optional_params:
+  k_lat_f: 0.15
+  k_lat_r: 0.1
+terrain_params:
+  ground_model: ASPHALT
+  mu_effective: 0.9
+  mu_static_prior: 0.98
+  mu_sliding_prior: 0.7
+  dhx_default: 0.0
+  dhy_default: 0.0
+  phi_default: null
+test_alternatives:
+  m:
+  - 1490.0
+  - 1510.0
+  - 1550.0
+  Iz:
+  - 2800.0
+  - 3200.0
+  - 3600.0
+  lf:
+  - 1.28
+  - 1.3347
+  - 1.38
+  lr:
+  - 1.27
+  - 1.32
+  - 1.37
+  L:
+  - 2.62
+  - 2.6547
+  - 2.69
+  h_com:
+  - 0.42
+  - 0.48
+  - 0.55
+  Cf0:
+  - 50000.0
+  - 70000.0
+  - 90000.0
+  Cr0:
+  - 65000.0
+  - 85000.0
+  - 110000.0
+  k_a:
+  - 1200.0
+  - 1350.0
+  - 1500.0
+  tau_delta:
+  - 0.4
+  - 0.5
+  - 0.6
+  tau_a:
+  - 0.2
+  - 0.24
+  - 0.32
+  delta_max:
+  - 0.45
+  - 0.52
+  - 0.63
+  a_min:
+  - -10.5
+  - -12.4
+  - -14.0
+  a_max:
+  - 6.8
+  - 7.5
+  - 8.5
+  k_lat_f:
+  - 0.0
+  - 0.15
+  - 0.3
+  k_lat_r:
+  - 0.0
+  - 0.1
+  - 0.25
+  mu_effective:
+  - 0.8
+  - 0.9
+  - 1.0
+estimation_method:
+  m:
+    value: 1510.0
+    method: Taken from Scintilla GTs config weight
+    unsure: false
+  Iz:
+    value: 3200.0
+    method: Geometry-based prior + stability tuning
+    unsure: true
+  lf:
+    value: 1.3347
+    method: Front hub geometry proxy
+    unsure: true
+  lr:
+    value: 1.32
+    method: Rear hub geometry proxy
+    unsure: true
+  L:
+    value: 2.6547
+    method: Computed from hub coordinates
+    unsure: false
+  h_com:
+    value: 0.48
+    method: Supercar prior
+    unsure: true
+  g:
+    value: 9.81000042
+    method: Read from level gravity
+    unsure: false
+  Cf0:
+    value: 70000.0
+    method: Log-based lateral fit + tire prior
+    unsure: true
+  Cr0:
+    value: 85000.0
+    method: Log-based lateral fit + tire prior
+    unsure: true
+  k_a:
+    value: 1350.0
+    method: Throttle-to-acceleration fit from bag data
+    unsure: false
+  tau_delta:
+    value: 0.5
+    method: First-order steering response identification
+    unsure: false
+  tau_a:
+    value: 0.24
+    method: First-order longitudinal response identification
+    unsure: false
+  delta_max:
+    value: 0.52
+    method: Steering lock prior + log consistency
+    unsure: false
+  a_min:
+    value: -12.4
+    method: Observed deceleration envelope
+    unsure: false
+  a_max:
+    value: 7.5
+    method: Observed acceleration envelope
+    unsure: false
+  k_lat_f:
+    value: 0.15
+    method: Regularization/tuning prior
+    unsure: true
+  k_lat_r:
+    value: 0.1
+    method: Regularization/tuning prior
+    unsure: true
+  mu_effective:
+    value: 0.9
+    method: ASPHALT ground model priors + effective tuning target
+    unsure: true

@@ -2,3 +2,5 @@ numpy>=1.24
 scipy>=1.10
 matplotlib>=3.7
 tqdm>=4.66
+optuna>=3.0
+torch>=2.0
