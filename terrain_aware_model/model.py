@@ -10,6 +10,26 @@ def clip(x, lo, hi):
     return np.clip(x, lo, hi)
 
 
+def pacejka_fy(alpha, C_stiffness, D_peak, C_shape):
+    """Simplified Pacejka Magic Formula for lateral tire force.
+
+    Fy = D * sin(C_shape * arctan(B * alpha))
+
+    where B = C_stiffness / (C_shape * D) to match the cornering stiffness
+    at alpha=0: dFy/dalpha|_{alpha=0} = C_stiffness.
+
+    Parameters
+    ----------
+    alpha : slip angle [rad]
+    C_stiffness : cornering stiffness at zero slip [N/rad] (= Cf0 or Cr0)
+    D_peak : peak lateral force [N] (= mu * Fz)
+    C_shape : shape factor (~1.0-1.6), controls where peak occurs
+    """
+    D_peak = np.maximum(D_peak, 1.0)
+    B = C_stiffness / np.maximum(C_shape * D_peak, 1.0)
+    return D_peak * np.sin(C_shape * np.arctan(B * alpha))
+
+
 def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
     """
     Continuous-time dynamics for:
@@ -67,6 +87,30 @@ def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
     a_max = p["a_max"]
     k_lat_f = float(p.get("k_lat_f", 0.0))
     k_lat_r = float(p.get("k_lat_r", 0.0))
+    coast_c0 = float(p.get("coast_c0", 0.0))
+    coast_c1 = float(p.get("coast_c1", 0.0))
+    Cf_shape = float(p.get("Cf_shape", 0.0))
+    Cr_shape = float(p.get("Cr_shape", 0.0))
+    use_pacejka = Cf_shape > 0.0 and Cr_shape > 0.0
+
+    # Polynomial Mz residual weights (rollout-trained via Optuna).
+    # Each feature captures physics NOT in the analytical bicycle model:
+    #   w0:  bias (constant yaw moment offset)
+    #   w1:  yaw damping ∝ r  (roll/suspension effects have no r→Mz path)
+    #   w2:  speed-dep yaw damping ∝ r·vx  (roll effects scale with speed)
+    #   w3:  steering transient ∝ δ̇  (tire relaxation at low speed)
+    #   w4:  steering transient ∝ δ̇·vx  (tire relaxation ∝ σ/vx)
+    #   w5:  sideslip correction ∝ vy  (unmodeled vy→Mz coupling)
+    #   w6:  speed-dep steering ∝ δ_cmd·vx²  (understeer/oversteer vs speed)
+    #   w7:  nonlinear sideslip ∝ vy·|vy|  (asymmetric vy→Mz at large slip)
+    res_w0 = float(p.get("res_w0", 0.0))
+    res_w1 = float(p.get("res_w1", 0.0))
+    res_w2 = float(p.get("res_w2", 0.0))
+    res_w3 = float(p.get("res_w3", 0.0))
+    res_w4 = float(p.get("res_w4", 0.0))
+    res_w5 = float(p.get("res_w5", 0.0))
+    res_w6 = float(p.get("res_w6", 0.0))
+    res_w7 = float(p.get("res_w7", 0.0))
 
     vx_eff = np.where(np.abs(vx) > 0.2, vx, np.where(vx >= 0.0, 0.2, -0.2))
 
@@ -97,21 +141,52 @@ def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
 
     Fz_tot = m * g / np.sqrt(1.0 + dhx * dhx + dhy * dhy)
 
-    ax_meas = float(meas.get("ax", 0.0))
-    Fz_f = clip(0.5 * Fz_tot - (m * h_com / L) * ax_meas, 0.0, Fz_tot)
+    # Longitudinal acceleration for load transfer:
+    # Use measured ax if available (e.g. from IMU), otherwise estimate from
+    # the model's own drive force state: ax ≈ k_a * a / m.
+    if "ax" in meas:
+        ax_lt = float(meas["ax"])
+    else:
+        ax_lt = k_a * a / m
+
+    # Static weight split uses lr/L (not 50/50) — rear-biased for rear-drive.
+    Fz_f = clip((lr / L) * Fz_tot - (m * h_com / L) * ax_lt, 0.0, Fz_tot)
     Fz_r = Fz_tot - Fz_f
 
-    ay_meas = float(meas.get("ay", 0.0))
-    ay_norm = clip(np.abs(ay_meas) / g, 0.0, 1.0)
+    # Lateral acceleration for cornering stiffness reduction:
+    # Use measured ay if available, otherwise estimate from model state.
+    if "ay" in meas:
+        ay_lat = float(meas["ay"])
+    else:
+        ay_lat = vx * r  # body-frame lateral acceleration ≈ centripetal
+    ay_norm = clip(np.abs(ay_lat) / g, 0.0, 1.0)
     Cf = Cf0 * (1.0 - k_lat_f * ay_norm)
     Cr = Cr0 * (1.0 - k_lat_r * ay_norm)
 
+    # Slip angles.
     alpha_f = delta - np.arctan2(vy + lf * r, vx_eff)
     alpha_r = -np.arctan2(vy - lr * r, vx_eff)
 
-    Fy_f = sat(Cf * alpha_f, mu * Fz_f)
-    Fy_r = sat(Cr * alpha_r, mu * Fz_r)
-    Fx_r = sat(k_a * a, mu * Fz_r)
+    # Longitudinal force: drive + coast/engine braking (computed before lateral
+    # forces so we can apply the friction circle to Fy).
+    Fx_drive = k_a * a
+    throttle_frac = clip(a / np.where(a_max > 0.01, a_max, 0.01), 0.0, 1.0)
+    Fx_coast = -(coast_c0 + coast_c1 * np.abs(vx)) * (1.0 - throttle_frac) * np.sign(vx_eff)
+    Fx_r = sat(Fx_drive + Fx_coast, mu * Fz_r)
+
+    # Combined slip: friction circle limits available lateral force.
+    # Front axle sees lateral component of Fx through steering: Fx_f_lat ≈ 0
+    # (front is not driven), so front peak is unchanged.
+    # Rear axle carries all drive/brake force Fx_r.
+    D_peak_f = mu * Fz_f
+    D_peak_r = np.sqrt(np.maximum((mu * Fz_r) ** 2 - Fx_r ** 2, 0.0))
+
+    if use_pacejka:
+        Fy_f = pacejka_fy(alpha_f, Cf, D_peak_f, Cf_shape)
+        Fy_r = pacejka_fy(alpha_r, Cr, D_peak_r, Cr_shape)
+    else:
+        Fy_f = sat(Cf * alpha_f, D_peak_f)
+        Fy_r = sat(Cr * alpha_r, D_peak_r)
 
     cd = np.cos(delta)
     sd = np.sin(delta)
@@ -119,14 +194,26 @@ def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
     Fy = Fy_f * cd + Fy_r
     Mz = lf * (Fy_f * cd) - lr * Fy_r
 
+    # Polynomial Mz residual: compute correction from state features.
+    delta_rate = (delta_cmd - delta) / tau_delta
+    d_r_poly = (res_w0
+                + res_w1 * r
+                + res_w2 * r * vx_eff
+                + res_w3 * delta_rate
+                + res_w4 * delta_rate * vx_eff
+                + res_w5 * vy
+                + res_w6 * delta_cmd * vx_eff ** 2
+                + res_w7 * vy * np.abs(vy))
+
     if residual is None:
         d_x = 0.0
         d_y = 0.0
-        d_r = 0.0
+        d_r = d_r_poly
     else:
         if x.ndim != 1:
             raise ValueError("residual is only supported for single-state inputs")
         d_x, d_y, d_r = residual(x, meas, phi)
+        d_r = d_r + d_r_poly
 
     Xdot = vx * cpsi - vy * spsi
     Ydot = vx * spsi + vy * cpsi
@@ -136,7 +223,7 @@ def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
     vydot = -r * vx + (Fy + Fgy + d_y) / m
     rdot = (Mz + d_r) / Iz
 
-    deltadot = (delta_cmd - delta) / tau_delta
+    deltadot = delta_rate
     adot = (a_cmd - a) / tau_a
 
     deltadot = np.where((delta >= delta_max) & (deltadot > 0.0), 0.0, deltadot)
@@ -144,4 +231,5 @@ def vehicle_dynamics(t, x, u, p, terrain=None, residual=None, meas=None):
     adot = np.where((a >= a_max) & (adot > 0.0), 0.0, adot)
     adot = np.where((a <= a_min) & (adot < 0.0), 0.0, adot)
 
-    return np.stack((Xdot, Ydot, psidot, vxdot, vydot, rdot, deltadot, adot), axis=-1)
+    return np.stack((Xdot, Ydot, psidot, vxdot, vydot, rdot, deltadot, adot),
+                     axis=-1)

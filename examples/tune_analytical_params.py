@@ -67,6 +67,22 @@ def get_param_bounds(
         "lr": (0.9, 1.8),
         "Iz": (1500.0, 5000.0),
         "mu_effective": (0.5, 1.0),
+        "k_a": (200.0, 1500.0),
+        "coast_c0": (0.0, 10000.0),
+        "coast_c1": (-200.0, 200.0),
+        "Cf_shape": (0.8, 2.0),
+        "Cr_shape": (0.8, 2.0),
+        "k_lat_f": (0.0, 0.5),
+        "k_lat_r": (0.0, 0.5),
+        # Polynomial Mz residual weights (units: N·m per feature-unit)
+        "res_w0": (-3000.0, 3000.0),
+        "res_w1": (-5000.0, 5000.0),
+        "res_w2": (-500.0, 500.0),
+        "res_w3": (-5000.0, 5000.0),
+        "res_w4": (-500.0, 500.0),
+        "res_w5": (-3000.0, 3000.0),
+        "res_w6": (-50.0, 50.0),     # delta_cmd · vx² (smaller scale: vx²~400)
+        "res_w7": (-5000.0, 5000.0), # vy · |vy|
     }
     bounds: dict[str, tuple[float, float]] = {}
 
@@ -74,7 +90,7 @@ def get_param_bounds(
         if name == "mu_effective":
             base_val = float(base_terrain.get("mu_effective", 1.0))
         else:
-            base_val = float(base_p[name])
+            base_val = float(base_p.get(name, 0.0))
 
         alt = alternatives.get(name)
         if isinstance(alt, list) and len(alt) >= 2:
@@ -236,8 +252,8 @@ def parse_args() -> argparse.Namespace:
     a("--w-roll-yaw", type=float, default=1.2, help="Emphasize yaw (drives position drift).")
     a("--w-roll-final", type=float, default=0.8)
     a("--log-every", type=int, default=20)
-    a("--config", type=Path, default=root / "configs" / "analytical_scintilla_asphalt.yaml")
-    a("--output-dir", type=Path, default=root / "results" / "analytical_tuning")
+    a("--config", type=Path, default=root / "configs" / "analytical_scintilla_asphalt_best.yaml")
+    a("--output-dir", type=Path, default=root / "results" / "analytical_MAIN")
     return p.parse_args()
 
 
@@ -298,7 +314,7 @@ def main() -> int:
     }
 
     baseline_candidate = {
-        k: (base_terrain["mu_effective"] if k == "mu_effective" else base_p[k])
+        k: (base_terrain["mu_effective"] if k == "mu_effective" else base_p.get(k, 0.0))
         for k in tune_params
     }
     baseline_metrics = evaluate_rollouts(

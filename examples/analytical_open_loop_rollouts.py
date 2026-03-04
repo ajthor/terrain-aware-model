@@ -244,7 +244,7 @@ def parse_args():
     a("--downsample", type=int, default=1)
     a("--max-test-seconds", type=float, default=250.0,
       help="Cap test-split duration (<=0 disables).")
-    a("--rollout-seconds", type=float, default=0.5)
+    a("--rollout-seconds", type=float, default=5.0)
     a("--dt", type=float, default=0.05, help="Integration step [s].")
     a("--n-rollouts", type=int, default=9, help="Rollouts per plot.")
     a("--n-plots", type=int, default=3)
@@ -252,9 +252,9 @@ def parse_args():
     a("--steer-sign", type=float, default=None, choices=[-1.0, 1.0])
     a("--internal-init", choices=["mapped", "zero"], default="mapped")
     a("--config", type=Path,
-      default=root / "configs" / "analytical_scintilla_asphalt.yaml")
+      default=root / "configs" / "analytical_scintilla_asphalt_best.yaml")
     a("--output-dir", type=Path,
-      default=root / "results" / "analytical_open_loop_rollouts")
+      default=root / "results" / "analytical_open_loop_MAIN")
     return p.parse_args()
 
 

@@ -23,26 +23,38 @@ model:
     throttle_to_a_cmd: a_cmd = throttle_input * a_max
 nominal_params:
   m: 1510.0
-  Iz: 2439.5414790501172
-  lf: 1.3509574111499039
-  lr: 1.2805245497815299
+  Iz: 2407.0235019339475
+  lf: 1.2691106245825388
+  lr: 1.4199896629774327
   L: 2.6547
   h_com: 0.48
   g: 9.81000042
-  Cf0: 40523.2395484929
-  Cr0: 59357.39627559018
-  k_a: 1350.0
+  Cf0: 88633.79367169843
+  Cr0: 76592.86301036128
+  k_a: 463.45
   tau_delta: 0.5
   tau_a: 0.24
   delta_max: 0.52
   a_min: -12.4
   a_max: 7.5
+  res_w0: 99.36235085209894
+  res_w1: 2251.8520943673166
+  res_w2: -199.50847397870805
+  res_w3: 4999.983069516306
+  res_w4: 449.6454912584795
+  res_w5: 1683.5613396510078
+  res_w6: 0.0
+  res_w7: 0.0
 optional_params:
-  k_lat_f: 0.15
-  k_lat_r: 0.1
+  k_lat_f: -0.14961941570979237
+  k_lat_r: 0.2867721429168823
+  coast_c0: -0.46
+  coast_c1: 184.22
+  Cf_shape: 1.04482127534427
+  Cr_shape: 1.6879933230716349
 terrain_params:
   ground_model: ASPHALT
-  mu_effective: 0.9
+  mu_effective: 1.0353874651554449
   mu_static_prior: 0.98
   mu_sliding_prior: 0.7
   dhx_default: 0.0
@@ -82,9 +94,9 @@ test_alternatives:
   - 85000.0
   - 110000.0
   k_a:
-  - 1200.0
-  - 1350.0
-  - 1500.0
+  - 400.0
+  - 675.0
+  - 1000.0
   tau_delta:
   - 0.4
   - 0.5
@@ -113,6 +125,22 @@ test_alternatives:
   - 0.0
   - 0.1
   - 0.25
+  coast_c0:
+  - 2000.0
+  - 4500.0
+  - 7000.0
+  coast_c1:
+  - -100.0
+  - 0.0
+  - 100.0
+  Cf_shape:
+  - 1.0
+  - 1.3
+  - 1.6
+  Cr_shape:
+  - 1.0
+  - 1.3
+  - 1.6
   mu_effective:
   - 0.8
   - 0.9
